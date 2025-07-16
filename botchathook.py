@@ -23,7 +23,7 @@ except ImportError:
 
 # Bot configuration
 TOKEN = "7630249959:AAFDAkdNFr6mjvw7WnYuCoJVAk4vfHYCoi0"
-WEBHOOK_URL = "https://smitisyt.pythonanywhere.com/bot"
+WEBHOOK_URL = "https://botchathook.onrender.com/bot"
 MYSQL_CONFIG = {
     'host': '141.8.193.104',
     'user': 'a0903281_botsmit',
