@@ -1,7 +1,6 @@
 flask
 telebot
 mysql.connector
-MySQLdb
 mysql_connector_repackaged
 pyTelegramBotAPI
 mysql-connector-python
