@@ -10,7 +10,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import threading
 import logging
-from keep_alive import leep_alive
+from keep_alive import keep_alive
 keep_alive()
 
 # Try mysql-connector-python, fallback to MySQLdb
