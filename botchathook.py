@@ -22,8 +22,8 @@ except ImportError:
 
 # Bot configuration
 TOKEN = "7717022740:AAHiaTyRrtJYFSkDYYosP04utC3RJXWI6Fs"
-WEBHOOK_URL = "https://<your-render-app>.onrender.com/bot"  # Replace with your Render app URL
-KEEP_ALIVE_URL = "https://<your-render-app>.onrender.com/"  # Replace with your Render app URL
+WEBHOOK_URL = "https://botchathook.onrender.com/bot"  # Replace with your Render app URL
+KEEP_ALIVE_URL = "https://botchathook.onrender.com"  # Replace with your Render app URL
 MYSQL_CONFIG = {
     'host': '141.8.193.104',
     'user': 'a0903281_botsmit',
