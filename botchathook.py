@@ -22,7 +22,7 @@ except ImportError:
     MYSQL_LIB = "MySQLdb"
 
 # Bot configuration
-TOKEN = "7630249959:AAFDAkdNFr6mjvw7WnYuCoJVAk4vfHYCoi0"
+TOKEN = "7717022740:AAHiaTyRrtJYFSkDYYosP04utC3RJXWI6Fs"
 WEBHOOK_URL = "https://botchathook.onrender.com/bot"
 MYSQL_CONFIG = {
     'host': '141.8.193.104',
