@@ -10,7 +10,6 @@ from flask import Flask, request
 import threading
 import logging
 
-
 # Try mysql-connector-python, fallback to MySQLdb
 try:
     import mysql.connector
@@ -23,7 +22,8 @@ except ImportError:
 
 # Bot configuration
 TOKEN = "7717022740:AAHiaTyRrtJYFSkDYYosP04utC3RJXWI6Fs"
-WEBHOOK_URL = "https://botchathook.onrender.com/bot"
+WEBHOOK_URL = "https://<your-render-app>.onrender.com/bot"  # Replace with your Render app URL
+KEEP_ALIVE_URL = "https://<your-render-app>.onrender.com/"  # Replace with your Render app URL
 MYSQL_CONFIG = {
     'host': '141.8.193.104',
     'user': 'a0903281_botsmit',
@@ -53,6 +53,15 @@ def get_global_ip():
         return response.json()['ip']
     except requests.RequestException as e:
         return f"Failed to get global IP: {e}"
+
+def keep_alive_pinger():
+    while True:
+        try:
+            response = requests.get(KEEP_ALIVE_URL, timeout=5)
+            print(f"Keep-alive ping to {KEEP_ALIVE_URL}: status_code={response.status_code}, response={response.text}")
+        except requests.RequestException as e:
+            print(f"Keep-alive ping failed to {KEEP_ALIVE_URL}: {e}")
+        time.sleep(600)  # Ping every 10 minutes
 
 def get_mysql_connection():
     global db_pool
@@ -225,7 +234,8 @@ def create_back_to_support_menu(telegram_id):
 
 def create_close_ticket_menu():
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add(KeyboardButton("Закрыть тему"))
+    respons = "Закрыть тему"
+    markup.add(KeyboardButton(respons))
     markup.add(KeyboardButton("Назад"))
     return markup
 
@@ -969,10 +979,11 @@ def set_webhook():
 
 def start_flask():
     print(f"Starting Flask server")
-    app.run(host='0.0.0.0', port=5000, debug=False)  # For local testing; WSGI handles production
+    app.run(host='0.0.0.0', port=8080, debug=False)  # Port 8080 for Render
 
 if __name__ == "__main__":
     print(f"Starting bot from global IP: {get_global_ip()}")
     init_mysql_db()
     threading.Thread(target=set_webhook).start()
+    threading.Thread(target=keep_alive_pinger, daemon=True).start()  # Start keep-alive pinger
     start_flask()
