@@ -643,7 +643,7 @@ def start_linking(message):
     telegram_id = message.from_user.id
     print(f"Start linking handler: telegram_id={telegram_id}")
     try:
-        bot.reply_to(message, "Введите ваш ник в Minecraft (только английские буквы и цифры, без пробелов):")
+        bot.reply_to(message, "Введите ваш ник в Minecraft и зайдите в лобби (только английские буквы и цифры, без пробелов):")
         bot.register_next_step_handler(message, process_username)
     except telebot.apihelper.ApiTelegramException as e:
         print(f"Error in start_linking for telegram_id={telegram_id}: {e}\n{traceback.format_exc()}")
