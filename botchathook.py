@@ -670,11 +670,11 @@ def process_username(message):
         code = generate_code()
         cursor.execute("INSERT INTO pending_codes (code, telegram_id, username, created_at) VALUES (%s, %s, %s, %s)",
                       (code, telegram_id, username, datetime.now()))
- ---\n"
-                "Ваш код для привязки: **{code}**\n"
-                "Введите команду на сервере Minecraft:\n"
-                "```\n/connect {code}\n```\n"
-                "Код действителен 5 минут.", reply_markup=create_main_menu(telegram_id))
+        conn.commit()
+        bot.reply_to(message, f"Ваш код для привязки: **{code}**\n"
+                             f"Введите команду на сервере Minecraft:\n"
+                             f"```\n/connect {code}\n```\n"
+                             f"Код действителен 5 минут.", reply_markup=create_main_menu(telegram_id))
         print(f"Generated code for telegram_id={telegram_id}: code={code}, username={username}")
     except (mysql.connector.Error if MYSQL_LIB == "mysql.connector" else MySQLdb.Error) as err:
         print(f"Database error in process_username: {err}\n{traceback.format_exc()}")
