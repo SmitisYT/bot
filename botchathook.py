@@ -9,6 +9,7 @@ from telebot.types import ReplyKeyboardMarkup, KeyboardButton
 from flask import Flask, request
 import threading
 import logging
+import json
 
 # Try mysql-connector-python, fallback to MySQLdb
 try:
@@ -24,6 +25,7 @@ except ImportError:
 TOKEN = "7717022740:AAHiaTyRrtJYFSkDYYosP04utC3RJXWI6Fs"
 WEBHOOK_URL = "https://botchathook.onrender.com/bot"  # Replace with your Render app URL
 KEEP_ALIVE_URL = "https://botchathook.onrender.com"  # Replace with your Render app URL
+VERIFY_CODE_URL = "https://botchathook.onrender.com/verify_code"  # New endpoint for code verification
 MYSQL_CONFIG = {
     'host': '141.8.193.104',
     'user': 'a0903281_botsmit',
@@ -117,7 +119,7 @@ def init_mysql_db():
         cursor.execute('''CREATE TABLE IF NOT EXISTS telegram_users
                          (telegram_id BIGINT PRIMARY KEY, minecraft_username VARCHAR(255), telegram_username VARCHAR(255))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS pending_codes
-                         (code VARCHAR(6) PRIMARY KEY, telegram_id BIGINT, username VARCHAR(255))''')
+                         (code VARCHAR(6) PRIMARY KEY, telegram_id BIGINT, username VARCHAR(255), created_at DATETIME)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS tickets
                          (ticket_id VARCHAR(10) PRIMARY KEY, telegram_id BIGINT, title VARCHAR(255), status VARCHAR(20))''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS ticket_messages
@@ -131,9 +133,15 @@ def init_mysql_db():
             cursor.execute("ALTER TABLE telegram_users ADD COLUMN telegram_username VARCHAR(255)")
             conn.commit()
             print("Added telegram_username column")
-            cursor.execute("DESCRIBE telegram_users")
-            columns = [row[0] for row in cursor.fetchall()]
-            print(f"Updated telegram_users columns: {columns}")
+        # Add created_at column to pending_codes if not exists
+        cursor.execute("DESCRIBE pending_codes")
+        columns = [row[0] for row in cursor.fetchall()]
+        print(f"pending_codes columns: {columns}")
+        if 'created_at' not in columns:
+            print("created_at column missing in pending_codes, attempting to add")
+            cursor.execute("ALTER TABLE pending_codes ADD COLUMN created_at DATETIME")
+            conn.commit()
+            print("Added created_at column to pending_codes")
         conn.commit()
         cursor.close()
         conn.close()
@@ -562,6 +570,16 @@ def start_linking(message):
     telegram_id = message.from_user.id
     print(f"Start linking handler: telegram_id={telegram_id}")
     try:
+        # Check if already linked
+        conn = get_mysql_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT minecraft_username FROM telegram_users WHERE telegram_id = %s", (telegram_id,))
+        existing_user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        if existing_user:
+            bot.reply_to(message, f"Ваш аккаунт уже привязан к нику: {existing_user[0]}. Хотите отвязать его?", reply_markup=create_main_menu(telegram_id))
+            return
         bot.reply_to(message, "Введите ваш ник в Minecraft (только английские буквы и цифры, без пробелов):")
         bot.register_next_step_handler(message, process_username)
     except telebot.apihelper.ApiTelegramException as e:
@@ -583,20 +601,93 @@ def process_username(message):
         code = generate_code()
         conn = get_mysql_connection()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO pending_codes (code, telegram_id, username) VALUES (%s, %s, %s)",
+        # Store in pending_codes only
+        cursor.execute("INSERT INTO pending_codes (code, telegram_id, username, created_at) VALUES (%s, %s, %s, NOW())",
                       (code, telegram_id, username))
-        cursor.execute("INSERT INTO telegram_users (telegram_id, minecraft_username, telegram_username) VALUES (%s, %s, %s) "
-                     "ON DUPLICATE KEY UPDATE minecraft_username = %s, telegram_username = %s",
-                     (telegram_id, username, telegram_username, username, telegram_username))
         conn.commit()
         cursor.close()
         conn.close()
-        bot.reply_to(message, f"Будьте на сервере и введите в чат следующую команду: /connect {code}", reply_markup=create_main_menu(telegram_id))
+        bot.reply_to(message, f"Будьте на сервере и введите в чат следующую команду: /connect {code}\n"
+                            "Ваш аккаунт будет привязан после ввода команды.", reply_markup=create_main_menu(telegram_id))
+        print(f"Code generated: code={code}, telegram_id={telegram_id}, username={username}")
     except (mysql.connector.Error if MYSQL_LIB == "mysql.connector" else MySQLdb.Error) as err:
         print(f"Database error in process_username: {err}\n{traceback.format_exc()}")
         bot.reply_to(message, f"Ошибка при сохранении кода: {err}", reply_markup=create_main_menu(telegram_id))
     except telebot.apihelper.ApiTelegramException as e:
         print(f"Error in process_username for telegram_id={telegram_id}: {e}\n{traceback.format_exc()}")
+
+@app.route('/verify_code', methods=['POST'])
+def verify_code():
+    try:
+        data = request.get_json()
+        if not data or 'code' not in data or 'username' not in data:
+            print(f"Invalid verify_code request: {data}")
+            return json.dumps({"success": False, "error": "Missing code or username"}), 400
+        code = data['code']
+        username = data['username']
+        print(f"Received verify_code request: code={code}, username={username}")
+        conn = get_mysql_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT telegram_id, username FROM pending_codes WHERE code = %s", (code,))
+        pending = cursor.fetchone()
+        if not pending:
+            print(f"Code not found: code={code}")
+            cursor.close()
+            conn.close()
+            return json.dumps({"success": False, "error": "Invalid code"}), 404
+        telegram_id, stored_username = pending
+        if stored_username.lower() != username.lower():
+            print(f"Username mismatch: stored={stored_username}, provided={username}")
+            cursor.close()
+            conn.close()
+            return json.dumps({"success": False, "error": "Username does not match"}), 403
+        # Check if code is expired (e.g., 10 minutes)
+        cursor.execute("SELECT created_at FROM pending_codes WHERE code = %s", (code,))
+        created_at = cursor.fetchone()[0]
+        if (time.time() - created_at.timestamp()) > 600:  # 10 minutes
+            print(f"Code expired: code={code}, created_at={created_at}")
+            cursor.execute("DELETE FROM pending_codes WHERE code = %s", (code,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return json.dumps({"success": False, "error": "Code expired"}), 410
+        # Verify username not already linked
+        cursor.execute("SELECT telegram_id FROM telegram_users WHERE minecraft_username = %s", (username,))
+        existing_user = cursor.fetchone()
+        if existing_user:
+            print(f"Username already linked: username={username}, existing_telegram_id={existing_user[0]}")
+            cursor.execute("DELETE FROM pending_codes WHERE code = %s", (code,))
+            conn.commit()
+            cursor.close()
+            conn.close()
+            return json.dumps({"success": False, "error": "Username already linked"}), 409
+        # Link account
+        telegram_username = None
+        try:
+            user = bot.get_chat(telegram_id)
+            telegram_username = user.username if user.username else user.first_name if user.first_name else "Unknown"
+        except telebot.apihelper.ApiTelegramException as e:
+            print(f"Failed to get telegram_username for telegram_id={telegram_id}: {e}")
+            telegram_username = "Unknown"
+        cursor.execute("INSERT INTO telegram_users (telegram_id, minecraft_username, telegram_username) "
+                     "VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE minecraft_username = %s, telegram_username = %s",
+                     (telegram_id, username, telegram_username, username, telegram_username))
+        cursor.execute("DELETE FROM pending_codes WHERE code = %s", (code,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        try:
+            bot.send_message(telegram_id, f"Ваш аккаунт Minecraft ({username}) успешно привязан!")
+            print(f"Account linked: telegram_id={telegram_id}, username={username}, telegram_username={telegram_username}")
+        except telebot.apihelper.ApiTelegramException as e:
+            print(f"Failed to notify telegram_id={telegram_id} of successful linking: {e}")
+        return json.dumps({"success": True, "telegram_id": telegram_id}), 200
+    except (mysql.connector.Error if MYSQL_LIB == "mysql.connector" else MySQLdb.Error) as err:
+        print(f"Database error in verify_code: {err}\n{traceback.format_exc()}")
+        return json.dumps({"success": False, "error": f"Database error: {err}"}), 500
+    except Exception as e:
+        print(f"Unexpected error in verify_code: {e}\n{traceback.format_exc()}")
+        return json.dumps({"success": False, "error": f"Unexpected error: {e}"}), 500
 
 @bot.message_handler(func=lambda message: message.text == "Сбросить пароль" and message.chat.type == 'private')
 def reset_password(message):
@@ -985,5 +1076,5 @@ if __name__ == "__main__":
     print(f"Starting bot from global IP: {get_global_ip()}")
     init_mysql_db()
     threading.Thread(target=set_webhook).start()
-    threading.Thread(target=keep_alive_pinger, daemon=True).start()  # Start keep-alive pinger
+    threading.Thread(target=keep_alive_pinger, daemon=True).start()
     start_flask()
